@@ -17,13 +17,12 @@
  */
 package org.apache.beam.sdk.io;
 
-import static org.apache.beam.sdk.TestUtils.INTS_ARRAY;
 import static org.apache.beam.sdk.TestUtils.LINES2_ARRAY;
 import static org.apache.beam.sdk.TestUtils.LINES_ARRAY;
-import static org.apache.beam.sdk.TestUtils.NO_INTS_ARRAY;
 import static org.apache.beam.sdk.TestUtils.NO_LINES_ARRAY;
 import static org.apache.beam.sdk.io.TextIO.CompressionType.AUTO;
 import static org.apache.beam.sdk.io.TextIO.CompressionType.BZIP2;
+import static org.apache.beam.sdk.io.TextIO.CompressionType.DEFLATE;
 import static org.apache.beam.sdk.io.TextIO.CompressionType.GZIP;
 import static org.apache.beam.sdk.io.TextIO.CompressionType.UNCOMPRESSED;
 import static org.apache.beam.sdk.io.TextIO.CompressionType.ZIP;
@@ -49,7 +48,6 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -57,14 +55,11 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
-import java.nio.channels.FileChannel;
-import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
-import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -73,37 +68,30 @@ import java.util.Set;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-
 import javax.annotation.Nullable;
-
-import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
-import org.apache.beam.sdk.coders.TextualIntegerCoder;
-import org.apache.beam.sdk.coders.VoidCoder;
 import org.apache.beam.sdk.io.BoundedSource.BoundedReader;
 import org.apache.beam.sdk.io.FileBasedSink.WritableByteChannelFactory;
 import org.apache.beam.sdk.io.TextIO.CompressionType;
 import org.apache.beam.sdk.io.TextIO.TextSource;
-import org.apache.beam.sdk.options.GcsOptions;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.testing.NeedsRunner;
 import org.apache.beam.sdk.testing.PAssert;
-import org.apache.beam.sdk.testing.RunnableOnService;
 import org.apache.beam.sdk.testing.SourceTestUtils;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.testing.TestPipelineOptions;
+import org.apache.beam.sdk.testing.ValidatesRunner;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.display.DisplayDataEvaluator;
 import org.apache.beam.sdk.util.CoderUtils;
-import org.apache.beam.sdk.util.GcsUtil;
 import org.apache.beam.sdk.util.IOChannelUtils;
-import org.apache.beam.sdk.util.gcsfs.GcsPath;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+import org.apache.commons.compress.compressors.deflate.DeflateCompressorOutputStream;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
@@ -113,14 +101,11 @@ import org.junit.experimental.categories.Category;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
-import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 
 /**
  * Tests for TextIO Read and Write transforms.
  */
-// TODO: Change the tests to use RunnableOnService instead of NeedsRunner
+// TODO: Change the tests to use ValidatesRunner instead of NeedsRunner
 @RunWith(JUnit4.class)
 @SuppressWarnings("unchecked")
 public class TextIOTest {
@@ -145,6 +130,9 @@ public class TextIOTest {
   private static File emptyZip;
   private static File tinyZip;
   private static File largeZip;
+  private static File emptyDeflate;
+  private static File tinyDeflate;
+  private static File largeDeflate;
 
   @Rule
   public TestPipeline p = TestPipeline.create();
@@ -170,6 +158,9 @@ public class TextIOTest {
         zipOutput.putNextEntry(new ZipEntry("entry"));
         output = zipOutput;
         break;
+      case DEFLATE:
+        output = new DeflateCompressorOutputStream(output);
+        break;
       default:
         throw new UnsupportedOperationException(compression.toString());
     }
@@ -186,20 +177,23 @@ public class TextIOTest {
     emptyGz = writeToFile(EMPTY, "empty.gz", GZIP);
     emptyBzip2 = writeToFile(EMPTY, "empty.bz2", BZIP2);
     emptyZip = writeToFile(EMPTY, "empty.zip", ZIP);
+    emptyDeflate = writeToFile(EMPTY, "empty.deflate", DEFLATE);
     // tiny files
     tinyTxt = writeToFile(TINY, "tiny.txt", CompressionType.UNCOMPRESSED);
     tinyGz = writeToFile(TINY, "tiny.gz", GZIP);
     tinyBzip2 = writeToFile(TINY, "tiny.bz2", BZIP2);
     tinyZip = writeToFile(TINY, "tiny.zip", ZIP);
+    tinyDeflate = writeToFile(TINY, "tiny.deflate", DEFLATE);
     // large files
     largeTxt = writeToFile(LARGE, "large.txt", CompressionType.UNCOMPRESSED);
     largeGz = writeToFile(LARGE, "large.gz", GZIP);
     largeBzip2 = writeToFile(LARGE, "large.bz2", BZIP2);
     largeZip = writeToFile(LARGE, "large.zip", ZIP);
+    largeDeflate = writeToFile(LARGE, "large.deflate", DEFLATE);
   }
 
   @AfterClass
-  public static void testdownClass() throws IOException {
+  public static void teardownClass() throws IOException {
     Files.walkFileTree(tempFolder, new SimpleFileVisitor<Path>() {
       @Override
       public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
@@ -215,28 +209,21 @@ public class TextIOTest {
     });
   }
 
-  private <T> void runTestRead(T[] expected, Coder<T> coder) throws Exception {
+  private <T> void runTestRead(String[] expected) throws Exception {
     File tmpFile = Files.createTempFile(tempFolder, "file", "txt").toFile();
     String filename = tmpFile.getPath();
 
     try (PrintStream writer = new PrintStream(new FileOutputStream(tmpFile))) {
-      for (T elem : expected) {
-        byte[] encodedElem = CoderUtils.encodeToByteArray(coder, elem);
+      for (String elem : expected) {
+        byte[] encodedElem = CoderUtils.encodeToByteArray(StringUtf8Coder.of(), elem);
         String line = new String(encodedElem);
         writer.println(line);
       }
     }
 
-    TextIO.Read.Bound<T> read;
-    if (coder.equals(StringUtf8Coder.of())) {
-      TextIO.Read.Bound<String> readStrings = TextIO.Read.from(filename);
-      // T==String
-      read = (TextIO.Read.Bound<T>) readStrings;
-    } else {
-      read = TextIO.Read.from(filename).withCoder(coder);
-    }
+    TextIO.Read.Bound read = TextIO.Read.from(filename);
 
-    PCollection<T> output = p.apply(read);
+    PCollection<String> output = p.apply(read);
 
     PAssert.that(output).containsInAnyOrder(expected);
     p.run();
@@ -245,31 +232,13 @@ public class TextIOTest {
   @Test
   @Category(NeedsRunner.class)
   public void testReadStrings() throws Exception {
-    runTestRead(LINES_ARRAY, StringUtf8Coder.of());
+    runTestRead(LINES_ARRAY);
   }
 
   @Test
   @Category(NeedsRunner.class)
   public void testReadEmptyStrings() throws Exception {
-    runTestRead(NO_LINES_ARRAY, StringUtf8Coder.of());
-  }
-
-  @Test
-  @Category(NeedsRunner.class)
-  public void testReadInts() throws Exception {
-    runTestRead(INTS_ARRAY, TextualIntegerCoder.of());
-  }
-
-  @Test
-  @Category(NeedsRunner.class)
-  public void testReadEmptyInts() throws Exception {
-    runTestRead(NO_INTS_ARRAY, TextualIntegerCoder.of());
-  }
-
-  @Test
-  @Category(NeedsRunner.class)
-  public void testReadNulls() throws Exception {
-    runTestRead(new Void[] {null, null, null}, VoidCoder.of());
+    runTestRead(NO_LINES_ARRAY);
   }
 
   @Test
@@ -286,7 +255,7 @@ public class TextIOTest {
 
   @Test
   public void testReadDisplayData() {
-    TextIO.Read.Bound<?> read = TextIO.Read
+    TextIO.Read.Bound read = TextIO.Read
         .from("foo.*")
         .withCompressionType(BZIP2)
         .withoutValidation();
@@ -299,11 +268,11 @@ public class TextIOTest {
   }
 
   @Test
-  @Category(RunnableOnService.class)
+  @Category(ValidatesRunner.class)
   public void testPrimitiveReadDisplayData() {
     DisplayDataEvaluator evaluator = DisplayDataEvaluator.create();
 
-    TextIO.Read.Bound<String> read = TextIO.Read
+    TextIO.Read.Bound read = TextIO.Read
         .from("foobar")
         .withoutValidation();
 
@@ -312,36 +281,32 @@ public class TextIOTest {
         displayData, hasItem(hasDisplayItem(hasValue(startsWith("foobar")))));
   }
 
-  private <T> void runTestWrite(T[] elems, Coder<T> coder) throws Exception {
-    runTestWrite(elems, null, null, coder, 1);
+  private void runTestWrite(String[] elems) throws Exception {
+    runTestWrite(elems, null, null, 1);
   }
 
-  private <T> void runTestWrite(T[] elems, Coder<T> coder, int numShards) throws Exception {
-    runTestWrite(elems, null, null, coder, numShards);
+  private void runTestWrite(String[] elems, int numShards) throws Exception {
+    runTestWrite(elems, null, null, numShards);
   }
 
-  private <T> void runTestWrite(T[] elems, Coder<T> coder, String header, String footer)
+  private void runTestWrite(String[] elems, String header, String footer)
       throws Exception {
-    runTestWrite(elems, header, footer, coder, 1);
+    runTestWrite(elems, header, footer, 1);
   }
 
-  private <T> void runTestWrite(
-      T[] elems, String header, String footer, Coder<T> coder, int numShards) throws Exception {
+  private void runTestWrite(
+      String[] elems, String header, String footer, int numShards) throws Exception {
     String outputName = "file.txt";
     Path baseDir = Files.createTempDirectory(tempFolder, "testwrite");
     String baseFilename = baseDir.resolve(outputName).toString();
 
-    PCollection<T> input = p.apply(Create.of(Arrays.asList(elems)).withCoder(coder));
+    PCollection<String> input =
+        p.apply(Create.of(Arrays.asList(elems)).withCoder(StringUtf8Coder.of()));
 
-    TextIO.Write.Bound<T> write;
-    if (coder.equals(StringUtf8Coder.of())) {
-      TextIO.Write.Bound<String> writeStrings = TextIO.Write.to(baseFilename);
-      // T==String
-      write = (TextIO.Write.Bound<T>) writeStrings;
-    } else {
-      write = TextIO.Write.to(baseFilename).withCoder(coder);
-    }
-    write = write.withHeader(header).withFooter(footer);
+    TextIO.Write.Bound write =
+        TextIO.Write.to(baseFilename)
+            .withHeader(header)
+            .withFooter(footer);
 
     if (numShards == 1) {
       write = write.withoutSharding();
@@ -353,15 +318,14 @@ public class TextIOTest {
 
     p.run();
 
-    assertOutputFiles(elems, header, footer, coder, numShards, baseDir, outputName,
+    assertOutputFiles(elems, header, footer, numShards, baseDir, outputName,
         write.getShardNameTemplate());
   }
 
-  public static <T> void assertOutputFiles(
-      T[] elems,
+  public static void assertOutputFiles(
+      String[] elems,
       final String header,
       final String footer,
-      Coder<T> coder,
       int numShards,
       Path rootLocation,
       String outputName,
@@ -400,8 +364,8 @@ public class TextIOTest {
     }
 
     List<String> expectedElements = new ArrayList<>(elems.length);
-    for (T elem : elems) {
-      byte[] encodedElem = CoderUtils.encodeToByteArray(coder, elem);
+    for (String elem : elems) {
+      byte[] encodedElem = CoderUtils.encodeToByteArray(StringUtf8Coder.of(), elem);
       String line = new String(encodedElem);
       expectedElements.add(line);
     }
@@ -439,7 +403,7 @@ public class TextIOTest {
   }
 
   private static Predicate<List<String>> haveProperHeaderAndFooter(final String header,
-                                                                   final String footer) {
+      final String footer) {
     return new Predicate<List<String>>() {
       @Override
       public boolean apply(List<String> fileLines) {
@@ -453,55 +417,43 @@ public class TextIOTest {
   @Test
   @Category(NeedsRunner.class)
   public void testWriteStrings() throws Exception {
-    runTestWrite(LINES_ARRAY, StringUtf8Coder.of());
+    runTestWrite(LINES_ARRAY);
   }
 
   @Test
   @Category(NeedsRunner.class)
   public void testWriteEmptyStringsNoSharding() throws Exception {
-    runTestWrite(NO_LINES_ARRAY, StringUtf8Coder.of(), 0);
+    runTestWrite(NO_LINES_ARRAY, 0);
   }
 
   @Test
   @Category(NeedsRunner.class)
   public void testWriteEmptyStrings() throws Exception {
-    runTestWrite(NO_LINES_ARRAY, StringUtf8Coder.of());
-  }
-
-  @Test
-  @Category(NeedsRunner.class)
-  public void testWriteInts() throws Exception {
-    runTestWrite(INTS_ARRAY, TextualIntegerCoder.of());
-  }
-
-  @Test
-  @Category(NeedsRunner.class)
-  public void testWriteEmptyInts() throws Exception {
-    runTestWrite(NO_INTS_ARRAY, TextualIntegerCoder.of());
+    runTestWrite(NO_LINES_ARRAY);
   }
 
   @Test
   @Category(NeedsRunner.class)
   public void testShardedWrite() throws Exception {
-    runTestWrite(LINES_ARRAY, StringUtf8Coder.of(), 5);
+    runTestWrite(LINES_ARRAY, 5);
   }
 
   @Test
   @Category(NeedsRunner.class)
   public void testWriteWithHeader() throws Exception {
-    runTestWrite(LINES_ARRAY, StringUtf8Coder.of(), MY_HEADER, null);
+    runTestWrite(LINES_ARRAY, MY_HEADER, null);
   }
 
   @Test
   @Category(NeedsRunner.class)
   public void testWriteWithFooter() throws Exception {
-    runTestWrite(LINES_ARRAY, StringUtf8Coder.of(), null, MY_FOOTER);
+    runTestWrite(LINES_ARRAY, null, MY_FOOTER);
   }
 
   @Test
   @Category(NeedsRunner.class)
   public void testWriteWithHeaderAndFooter() throws Exception {
-    runTestWrite(LINES_ARRAY, StringUtf8Coder.of(), MY_HEADER, MY_FOOTER);
+    runTestWrite(LINES_ARRAY, MY_HEADER, MY_FOOTER);
   }
 
   @Test
@@ -515,7 +467,7 @@ public class TextIOTest {
 
     final WritableByteChannelFactory writableByteChannelFactory =
         new DrunkWritableByteChannelFactory();
-    TextIO.Write.Bound<String> write = TextIO.Write.to(baseDir.resolve(outputName).toString())
+    TextIO.Write.Bound write = TextIO.Write.to(baseDir.resolve(outputName).toString())
         .withoutSharding().withWritableByteChannelFactory(writableByteChannelFactory);
     DisplayData displayData = DisplayData.from(write);
     assertThat(displayData, hasDisplayItem("writableByteChannelFactory", "DRUNK"));
@@ -526,16 +478,16 @@ public class TextIOTest {
 
     final List<String> drunkElems = new ArrayList<>(LINES2_ARRAY.length * 2 + 2);
     for (String elem : LINES2_ARRAY) {
-      drunkElems.add(elem + elem);
-      drunkElems.add("");
+      drunkElems.add(elem);
+      drunkElems.add(elem);
     }
-    assertOutputFiles(drunkElems.toArray(new String[0]), null, null, coder, 1, baseDir,
+    assertOutputFiles(drunkElems.toArray(new String[0]), null, null, 1, baseDir,
         outputName + writableByteChannelFactory.getFilenameSuffix(), write.getShardNameTemplate());
   }
 
   @Test
   public void testWriteDisplayData() {
-    TextIO.Write.Bound<?> write = TextIO.Write
+    TextIO.Write.Bound write = TextIO.Write
         .to("foo")
         .withSuffix("bar")
         .withShardNameTemplate("-SS-of-NN-")
@@ -558,7 +510,7 @@ public class TextIOTest {
 
   @Test
   public void testWriteDisplayDataValidateThenHeader() {
-    TextIO.Write.Bound<?> write = TextIO.Write
+    TextIO.Write.Bound write = TextIO.Write
         .to("foo")
         .withHeader("myHeader");
 
@@ -570,7 +522,7 @@ public class TextIOTest {
 
   @Test
   public void testWriteDisplayDataValidateThenFooter() {
-    TextIO.Write.Bound<?> write = TextIO.Write
+    TextIO.Write.Bound write = TextIO.Write
         .to("foo")
         .withFooter("myFooter");
 
@@ -581,8 +533,8 @@ public class TextIOTest {
   }
 
   @Test
-  @Category(RunnableOnService.class)
-  @Ignore("[BEAM-436] DirectRunner RunnableOnService tempLocation configuration insufficient")
+  @Category(ValidatesRunner.class)
+  @Ignore("[BEAM-436] DirectRunner ValidatesRunner tempLocation configuration insufficient")
   public void testPrimitiveWriteDisplayData() throws IOException {
     PipelineOptions options = DisplayDataEvaluator.getDefaultOptions();
     String tempRoot = options.as(TestPipelineOptions.class).getTempRoot();
@@ -590,7 +542,7 @@ public class TextIOTest {
 
     DisplayDataEvaluator evaluator = DisplayDataEvaluator.create();
 
-    TextIO.Write.Bound<?> write = TextIO.Write.to(outputPath);
+    TextIO.Write.Bound write = TextIO.Write.to(outputPath);
 
     Set<DisplayData> displayData = evaluator.displayDataForPrimitiveTransforms(write);
     assertThat("TextIO.Write should include the file prefix in its primitive display data",
@@ -610,21 +562,6 @@ public class TextIOTest {
     expectedException.expect(IllegalArgumentException.class);
     expectedException.expectMessage("Output name components are not allowed to contain");
     input.apply(TextIO.Write.to(filename));
-  }
-
-  /**
-   * Recursive wildcards are not supported.
-   * This tests "**".
-   */
-  @Test
-  public void testBadWildcardRecursive() throws Exception {
-    p.enableAbandonedNodeEnforcement(false);
-
-    // Check that applying does fail.
-    expectedException.expect(IllegalArgumentException.class);
-    expectedException.expectMessage("wildcard");
-
-    p.apply(TextIO.Read.from("gs://bucket/foo**/baz"));
   }
 
   /** Options for testing. */
@@ -649,21 +586,21 @@ public class TextIOTest {
 
   @Test
   public void testReadWithoutValidationFlag() throws Exception {
-    TextIO.Read.Bound<String> read = TextIO.Read.from("gs://bucket/foo*/baz");
+    TextIO.Read.Bound read = TextIO.Read.from("gs://bucket/foo*/baz");
     assertTrue(read.needsValidation());
     assertFalse(read.withoutValidation().needsValidation());
   }
 
   @Test
   public void testWriteWithoutValidationFlag() throws Exception {
-    TextIO.Write.Bound<String> write = TextIO.Write.to("gs://bucket/foo/baz");
+    TextIO.Write.Bound write = TextIO.Write.to("gs://bucket/foo/baz");
     assertTrue(write.needsValidation());
     assertFalse(write.withoutValidation().needsValidation());
   }
 
   @Test
   public void testCompressionTypeIsSet() throws Exception {
-    TextIO.Read.Bound<String> read = TextIO.Read.from("gs://bucket/test");
+    TextIO.Read.Bound read = TextIO.Read.from("gs://bucket/test");
     assertEquals(AUTO, read.getCompressionType());
     read = TextIO.Read.from("gs://bucket/test").withCompressionType(GZIP);
     assertEquals(GZIP, read.getCompressionType());
@@ -688,7 +625,7 @@ public class TextIOTest {
   private void assertReadingCompressedFileMatchesExpected(
       File file, CompressionType compressionType, String[] expected) {
 
-    TextIO.Read.Bound<String> read =
+    TextIO.Read.Bound read =
         TextIO.Read.from(file.getPath()).withCompressionType(compressionType);
     PCollection<String> output = p.apply("Read_" + file + "_" + compressionType.toString(), read);
 
@@ -840,6 +777,24 @@ public class TextIOTest {
     // Zip files with non-zip extension should work in ZIP mode.
     File zipFile = writeToFile(TINY, "tiny_zip_no_extension", ZIP);
     assertReadingCompressedFileMatchesExpected(zipFile, ZIP, TINY);
+  }
+
+  @Test
+  @Category(NeedsRunner.class)
+  public void testDeflateCompressedRead() throws Exception {
+    // Files with the right extensions should work in AUTO and ZIP modes.
+    for (CompressionType type : new CompressionType[]{AUTO, DEFLATE}) {
+      assertReadingCompressedFileMatchesExpected(emptyDeflate, type, EMPTY);
+      assertReadingCompressedFileMatchesExpected(tinyDeflate, type, TINY);
+      assertReadingCompressedFileMatchesExpected(largeDeflate, type, LARGE);
+    }
+
+    // Sanity check that we're properly testing compression.
+    assertThat(largeTxt.length(), greaterThan(largeDeflate.length()));
+
+    // Deflate files with non-deflate extension should work in DEFLATE mode.
+    File deflateFile = writeToFile(TINY, "tiny_deflate_no_extension", DEFLATE);
+    assertReadingCompressedFileMatchesExpected(deflateFile, DEFLATE, TINY);
   }
 
   /**
@@ -1064,78 +1019,78 @@ public class TextIOTest {
   }
 
   private void runTestReadWithData(byte[] data, List<String> expectedResults) throws Exception {
-    TextSource<String> source = prepareSource(data);
+    TextSource source = prepareSource(data);
     List<String> actual = SourceTestUtils.readFromSource(source, PipelineOptionsFactory.create());
     assertThat(actual, containsInAnyOrder(new ArrayList<>(expectedResults).toArray(new String[0])));
   }
 
   @Test
   public void testSplittingSourceWithEmptyLines() throws Exception {
-    TextSource<String> source = prepareSource("\n\n\n".getBytes(StandardCharsets.UTF_8));
+    TextSource source = prepareSource("\n\n\n".getBytes(StandardCharsets.UTF_8));
     SourceTestUtils.assertSplitAtFractionExhaustive(source, PipelineOptionsFactory.create());
   }
 
   @Test
   public void testSplittingSourceWithLineFeedDelimiter() throws Exception {
-    TextSource<String> source = prepareSource("asdf\nhjkl\nxyz\n".getBytes(StandardCharsets.UTF_8));
+    TextSource source = prepareSource("asdf\nhjkl\nxyz\n".getBytes(StandardCharsets.UTF_8));
     SourceTestUtils.assertSplitAtFractionExhaustive(source, PipelineOptionsFactory.create());
   }
 
   @Test
   public void testSplittingSourceWithCarriageReturnDelimiter() throws Exception {
-    TextSource<String> source = prepareSource("asdf\rhjkl\rxyz\r".getBytes(StandardCharsets.UTF_8));
+    TextSource source = prepareSource("asdf\rhjkl\rxyz\r".getBytes(StandardCharsets.UTF_8));
     SourceTestUtils.assertSplitAtFractionExhaustive(source, PipelineOptionsFactory.create());
   }
 
   @Test
   public void testSplittingSourceWithCarriageReturnAndLineFeedDelimiter() throws Exception {
-    TextSource<String> source = prepareSource(
+    TextSource source = prepareSource(
         "asdf\r\nhjkl\r\nxyz\r\n".getBytes(StandardCharsets.UTF_8));
     SourceTestUtils.assertSplitAtFractionExhaustive(source, PipelineOptionsFactory.create());
   }
 
   @Test
   public void testSplittingSourceWithMixedDelimiters() throws Exception {
-    TextSource<String> source = prepareSource(
+    TextSource source = prepareSource(
         "asdf\rhjkl\r\nxyz\n".getBytes(StandardCharsets.UTF_8));
     SourceTestUtils.assertSplitAtFractionExhaustive(source, PipelineOptionsFactory.create());
   }
 
   @Test
   public void testSplittingSourceWithLineFeedDelimiterAndNonEmptyBytesAtEnd() throws Exception {
-    TextSource<String> source = prepareSource("asdf\nhjkl\nxyz".getBytes(StandardCharsets.UTF_8));
+    TextSource source = prepareSource("asdf\nhjkl\nxyz".getBytes(StandardCharsets.UTF_8));
     SourceTestUtils.assertSplitAtFractionExhaustive(source, PipelineOptionsFactory.create());
   }
 
   @Test
   public void testSplittingSourceWithCarriageReturnDelimiterAndNonEmptyBytesAtEnd()
       throws Exception {
-    TextSource<String> source = prepareSource("asdf\rhjkl\rxyz".getBytes(StandardCharsets.UTF_8));
+    TextSource source = prepareSource("asdf\rhjkl\rxyz".getBytes(StandardCharsets.UTF_8));
     SourceTestUtils.assertSplitAtFractionExhaustive(source, PipelineOptionsFactory.create());
   }
 
   @Test
   public void testSplittingSourceWithCarriageReturnAndLineFeedDelimiterAndNonEmptyBytesAtEnd()
       throws Exception {
-    TextSource<String> source = prepareSource(
+    TextSource source = prepareSource(
         "asdf\r\nhjkl\r\nxyz".getBytes(StandardCharsets.UTF_8));
     SourceTestUtils.assertSplitAtFractionExhaustive(source, PipelineOptionsFactory.create());
   }
 
   @Test
   public void testSplittingSourceWithMixedDelimitersAndNonEmptyBytesAtEnd() throws Exception {
-    TextSource<String> source = prepareSource("asdf\rhjkl\r\nxyz".getBytes(StandardCharsets.UTF_8));
+    TextSource source = prepareSource("asdf\rhjkl\r\nxyz".getBytes(StandardCharsets.UTF_8));
     SourceTestUtils.assertSplitAtFractionExhaustive(source, PipelineOptionsFactory.create());
   }
 
-  private TextSource<String> prepareSource(byte[] data) throws IOException {
+  private TextSource prepareSource(byte[] data) throws IOException {
     Path path = Files.createTempFile(tempFolder, "tempfile", "ext");
     Files.write(path, data);
-    return new TextSource<>(path.toString(), StringUtf8Coder.of());
+    return new TextSource(path.toString());
   }
 
   @Test
-  public void testInitialSplitIntoBundlesAutoModeTxt() throws Exception {
+  public void testInitialSplitAutoModeTxt() throws Exception {
     PipelineOptions options = TestPipeline.testingPipelineOptions();
     long desiredBundleSize = 1000;
 
@@ -1144,7 +1099,7 @@ public class TextIOTest {
 
     FileBasedSource<String> source = TextIO.Read.from(largeTxt.getPath()).getSource();
     List<? extends FileBasedSource<String>> splits =
-        source.splitIntoBundles(desiredBundleSize, options);
+        source.split(desiredBundleSize, options);
 
     // At least 2 splits and they are equal to reading the whole file.
     assertThat(splits, hasSize(greaterThan(1)));
@@ -1152,7 +1107,7 @@ public class TextIOTest {
   }
 
   @Test
-  public void testInitialSplitIntoBundlesAutoModeGz() throws Exception {
+  public void testInitialSplitAutoModeGz() throws Exception {
     long desiredBundleSize = 1000;
     PipelineOptions options = TestPipeline.testingPipelineOptions();
 
@@ -1161,7 +1116,7 @@ public class TextIOTest {
 
     FileBasedSource<String> source = TextIO.Read.from(largeGz.getPath()).getSource();
     List<? extends FileBasedSource<String>> splits =
-        source.splitIntoBundles(desiredBundleSize, options);
+        source.split(desiredBundleSize, options);
 
     // Exactly 1 split, even in AUTO mode, since it is a gzip file.
     assertThat(splits, hasSize(equalTo(1)));
@@ -1169,7 +1124,7 @@ public class TextIOTest {
   }
 
   @Test
-  public void testInitialSplitIntoBundlesGzipModeTxt() throws Exception {
+  public void testInitialSplitGzipModeTxt() throws Exception {
     PipelineOptions options = TestPipeline.testingPipelineOptions();
     long desiredBundleSize = 1000;
 
@@ -1179,7 +1134,7 @@ public class TextIOTest {
     FileBasedSource<String> source =
         TextIO.Read.from(largeTxt.getPath()).withCompressionType(GZIP).getSource();
     List<? extends FileBasedSource<String>> splits =
-        source.splitIntoBundles(desiredBundleSize, options);
+        source.split(desiredBundleSize, options);
 
     // Exactly 1 split, even though splittable text file, since using GZIP mode.
     assertThat(splits, hasSize(equalTo(1)));
@@ -1187,7 +1142,7 @@ public class TextIOTest {
   }
 
   @Test
-  public void testInitialSplitIntoBundlesGzipModeGz() throws Exception {
+  public void testInitialSplitGzipModeGz() throws Exception {
     PipelineOptions options = TestPipeline.testingPipelineOptions();
     long desiredBundleSize = 1000;
 
@@ -1197,76 +1152,11 @@ public class TextIOTest {
     FileBasedSource<String> source =
         TextIO.Read.from(largeGz.getPath()).withCompressionType(GZIP).getSource();
     List<? extends FileBasedSource<String>> splits =
-        source.splitIntoBundles(desiredBundleSize, options);
+        source.split(desiredBundleSize, options);
 
     // Exactly 1 split using .gz extension and using GZIP mode.
     assertThat(splits, hasSize(equalTo(1)));
     SourceTestUtils.assertSourcesEqualReferenceSource(source, splits, options);
   }
-
-  ///////////////////////////////////////////////////////////////////////////////////////////////
-  // Test "gs://" paths
-
-  private GcsUtil buildMockGcsUtil() throws IOException {
-    GcsUtil mockGcsUtil = Mockito.mock(GcsUtil.class);
-
-    // Any request to open gets a new bogus channel
-    Mockito
-        .when(mockGcsUtil.open(Mockito.any(GcsPath.class)))
-        .then(new Answer<SeekableByteChannel>() {
-          @Override
-          public SeekableByteChannel answer(InvocationOnMock invocation) throws Throwable {
-            return FileChannel.open(
-                Files.createTempFile("channel-", ".tmp"),
-                StandardOpenOption.CREATE, StandardOpenOption.DELETE_ON_CLOSE);
-          }
-        });
-
-    // Any request for expansion returns a list containing the original GcsPath
-    // This is required to pass validation that occurs in TextIO during apply()
-    Mockito
-        .when(mockGcsUtil.expand(Mockito.any(GcsPath.class)))
-        .then(new Answer<List<GcsPath>>() {
-          @Override
-          public List<GcsPath> answer(InvocationOnMock invocation) throws Throwable {
-            return ImmutableList.of((GcsPath) invocation.getArguments()[0]);
-          }
-        });
-
-    return mockGcsUtil;
-  }
-
-  /**
-   * This tests a few corner cases that should not crash.
-   */
-  @Test
-  @Category(NeedsRunner.class)
-  public void testGoodWildcards() throws Exception {
-    GcsOptions options = TestPipeline.testingPipelineOptions().as(GcsOptions.class);
-    options.setGcsUtil(buildMockGcsUtil());
-
-    Pipeline pipeline = Pipeline.create(options);
-
-    applyRead(pipeline, "gs://bucket/foo");
-    applyRead(pipeline, "gs://bucket/foo/");
-    applyRead(pipeline, "gs://bucket/foo/*");
-    applyRead(pipeline, "gs://bucket/foo/?");
-    applyRead(pipeline, "gs://bucket/foo/[0-9]");
-    applyRead(pipeline, "gs://bucket/foo/*baz*");
-    applyRead(pipeline, "gs://bucket/foo/*baz?");
-    applyRead(pipeline, "gs://bucket/foo/[0-9]baz?");
-    applyRead(pipeline, "gs://bucket/foo/baz/*");
-    applyRead(pipeline, "gs://bucket/foo/baz/*wonka*");
-    applyRead(pipeline, "gs://bucket/foo/*baz/wonka*");
-    applyRead(pipeline, "gs://bucket/foo*/baz");
-    applyRead(pipeline, "gs://bucket/foo?/baz");
-    applyRead(pipeline, "gs://bucket/foo[0-9]/baz");
-
-    // Check that running doesn't fail.
-    pipeline.run();
-  }
-
-  private void applyRead(Pipeline pipeline, String path) {
-    pipeline.apply("Read(" + path + ")", TextIO.Read.from(path));
-  }
 }
+

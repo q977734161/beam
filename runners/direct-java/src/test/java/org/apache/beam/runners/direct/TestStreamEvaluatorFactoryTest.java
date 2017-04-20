@@ -27,6 +27,7 @@ import com.google.common.collect.Iterables;
 import java.util.Collection;
 import java.util.Collections;
 import org.apache.beam.runners.direct.DirectRunner.CommittedBundle;
+import org.apache.beam.runners.direct.TestStreamEvaluatorFactory.DirectTestStreamFactory.DirectTestStream;
 import org.apache.beam.runners.direct.TestStreamEvaluatorFactory.TestClock;
 import org.apache.beam.runners.direct.TestStreamEvaluatorFactory.TestStreamIndex;
 import org.apache.beam.sdk.coders.VarIntCoder;
@@ -55,10 +56,12 @@ public class TestStreamEvaluatorFactoryTest {
 
   @Rule
   public TestPipeline p = TestPipeline.create().enableAbandonedNodeEnforcement(false);
+  private DirectRunner runner;
 
   @Before
   public void setup() {
     context = mock(EvaluationContext.class);
+    runner = DirectRunner.fromOptions(TestPipeline.testingPipelineOptions());
     factory = new TestStreamEvaluatorFactory(context);
     bundleFactory = ImmutableListBundleFactory.create();
   }
@@ -66,17 +69,16 @@ public class TestStreamEvaluatorFactoryTest {
   /** Demonstrates that returned evaluators produce elements in sequence. */
   @Test
   public void producesElementsInSequence() throws Exception {
+    TestStream<Integer> testStream = TestStream.create(VarIntCoder.of())
+        .addElements(1, 2, 3)
+        .advanceWatermarkTo(new Instant(0))
+        .addElements(TimestampedValue.atMinimumTimestamp(4),
+            TimestampedValue.atMinimumTimestamp(5),
+            TimestampedValue.atMinimumTimestamp(6))
+        .advanceProcessingTime(Duration.standardMinutes(10))
+        .advanceWatermarkToInfinity();
     PCollection<Integer> streamVals =
-        p.apply(
-            TestStream.create(VarIntCoder.of())
-                .addElements(1, 2, 3)
-                .advanceWatermarkTo(new Instant(0))
-                .addElements(
-                    TimestampedValue.atMinimumTimestamp(4),
-                    TimestampedValue.atMinimumTimestamp(5),
-                    TimestampedValue.atMinimumTimestamp(6))
-                .advanceProcessingTime(Duration.standardMinutes(10))
-                .advanceWatermarkToInfinity());
+        p.apply(new DirectTestStream<Integer>(runner, testStream));
 
     TestClock clock = new TestClock();
     when(context.getClock()).thenReturn(clock);

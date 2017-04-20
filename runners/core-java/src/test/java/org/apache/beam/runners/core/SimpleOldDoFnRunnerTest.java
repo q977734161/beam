@@ -23,7 +23,6 @@ import static org.mockito.Mockito.mock;
 import java.util.Arrays;
 import java.util.List;
 import org.apache.beam.runners.core.BaseExecutionContext.StepContext;
-
 import org.apache.beam.sdk.util.SystemDoFnInternal;
 import org.apache.beam.sdk.util.UserCodeException;
 import org.apache.beam.sdk.util.WindowedValue;
@@ -65,10 +64,10 @@ public class SimpleOldDoFnRunnerTest {
 
   private DoFnRunner<String, String> createRunner(OldDoFn<String, String> fn) {
     // Pass in only necessary parameters for the test
-    List<TupleTag<?>> sideOutputTags = Arrays.asList();
+    List<TupleTag<?>> additionalOutputTags = Arrays.asList();
     StepContext context = mock(StepContext.class);
     return new SimpleOldDoFnRunner<>(
-          null, fn, null, null, null, sideOutputTags, context, null, null);
+        null, fn, null, null, null, additionalOutputTags, context, null, null);
   }
 
   static class ThrowingDoFn extends OldDoFn<String, String> {

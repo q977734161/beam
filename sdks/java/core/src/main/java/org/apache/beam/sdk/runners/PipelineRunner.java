@@ -21,14 +21,11 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
-import org.apache.beam.sdk.options.GcsOptions;
+import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsValidator;
-import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.util.IOChannelUtils;
 import org.apache.beam.sdk.util.InstanceBuilder;
-import org.apache.beam.sdk.values.PInput;
-import org.apache.beam.sdk.values.POutput;
 
 /**
  * A {@link PipelineRunner} can execute, translate, or otherwise process a
@@ -44,11 +41,12 @@ public abstract class PipelineRunner<ResultT extends PipelineResult> {
    * @return The newly created runner.
    */
   public static PipelineRunner<? extends PipelineResult> fromOptions(PipelineOptions options) {
-    GcsOptions gcsOptions = PipelineOptionsValidator.validate(GcsOptions.class, options);
     checkNotNull(options);
+    PipelineOptionsValidator.validate(PipelineOptions.class, options);
 
     // (Re-)register standard IO factories. Clobbers any prior credentials.
-    IOChannelUtils.registerIOFactoriesAllowOverride(gcsOptions);
+    IOChannelUtils.registerIOFactoriesAllowOverride(options);
+    FileSystems.setDefaultConfigInWorkers(options);
 
     @SuppressWarnings("unchecked")
     PipelineRunner<? extends PipelineResult> result =
@@ -64,15 +62,4 @@ public abstract class PipelineRunner<ResultT extends PipelineResult> {
    * Processes the given Pipeline, returning the results.
    */
   public abstract ResultT run(Pipeline pipeline);
-
-  /**
-   * Applies a transform to the given input, returning the output.
-   *
-   * <p>The default implementation calls PTransform.apply(input), but can be overridden
-   * to customize behavior for a particular runner.
-   */
-  public <OutputT extends POutput, InputT extends PInput> OutputT apply(
-      PTransform<InputT, OutputT> transform, InputT input) {
-    return transform.expand(input);
-  }
 }

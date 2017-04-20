@@ -74,7 +74,11 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.Pipeline.PipelineExecutionException;
+import org.apache.beam.sdk.coders.ByteStringCoder;
 import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.IterableCoder;
+import org.apache.beam.sdk.coders.KvCoder;
+import org.apache.beam.sdk.coders.protobuf.ProtoCoder;
 import org.apache.beam.sdk.io.BoundedSource.BoundedReader;
 import org.apache.beam.sdk.io.gcp.bigtable.BigtableIO.BigtableSource;
 import org.apache.beam.sdk.io.range.ByteKey;
@@ -472,7 +476,7 @@ public class BigtableIOTest {
             ByteKeyRange.ALL_KEYS,
             null /*size*/);
     List<BigtableSource> splits =
-        source.splitIntoBundles(numRows * bytesPerRow / numSamples, null /* options */);
+        source.split(numRows * bytesPerRow / numSamples, null /* options */);
 
     // Test num splits and split equality.
     assertThat(splits, hasSize(numSamples));
@@ -499,7 +503,8 @@ public class BigtableIOTest {
         null /*filter*/,
         ByteKeyRange.ALL_KEYS,
         null /*size*/);
-    List<BigtableSource> splits = source.splitIntoBundles(numRows * bytesPerRow / numSplits, null);
+    List<BigtableSource> splits =
+        source.split(numRows * bytesPerRow / numSplits, null);
 
     // Test num splits and split equality.
     assertThat(splits, hasSize(numSplits));
@@ -524,7 +529,8 @@ public class BigtableIOTest {
         RowFilter.newBuilder().setRowKeyRegexFilter(ByteString.copyFromUtf8(".*17.*")).build();
     BigtableSource source =
         new BigtableSource(serviceFactory, table, filter, ByteKeyRange.ALL_KEYS, null /*size*/);
-    List<BigtableSource> splits = source.splitIntoBundles(numRows * bytesPerRow / numSplits, null);
+    List<BigtableSource> splits =
+        source.split(numRows * bytesPerRow / numSplits, null);
 
     // Test num splits and split equality.
     assertThat(splits, hasSize(numSplits));
@@ -612,7 +618,9 @@ public class BigtableIOTest {
     final String table = "TEST-TABLE";
 
     PCollection<KV<ByteString, Iterable<Mutation>>> emptyInput =
-        p.apply(Create.<KV<ByteString, Iterable<Mutation>>>of());
+        p.apply(
+            Create.empty(
+                KvCoder.of(ByteStringCoder.of(), IterableCoder.of(ProtoCoder.of(Mutation.class)))));
 
     // Exception will be thrown by write.validate() when write is applied.
     thrown.expect(IllegalArgumentException.class);
@@ -693,14 +701,10 @@ public class BigtableIOTest {
         BigtableIO.read().withBigtableOptions(optionsBuilder.build());
 
     BigtableOptions options = read.getBigtableOptions();
-    assertEquals(RetryOptions.DEFAULT_STREAMING_BATCH_SIZE,
-        options.getRetryOptions().getStreamingBatchSize());
     assertEquals(initialBackoffMillis, options.getRetryOptions().getInitialBackoffMillis());
 
     assertThat(options.getRetryOptions(),
-        Matchers.equalTo(retryOptionsBuilder
-            .setStreamingBatchSize(RetryOptions.DEFAULT_STREAMING_BATCH_SIZE)
-            .build()));
+        Matchers.equalTo(retryOptionsBuilder.build()));
   }
 
   @Test
@@ -725,8 +729,6 @@ public class BigtableIOTest {
     BigtableOptions options = write.getBigtableOptions();
     assertEquals(true, options.getBulkOptions().useBulkApi());
     assertEquals(maxInflightRpcs, options.getBulkOptions().getMaxInflightRpcs());
-    assertEquals(RetryOptions.DEFAULT_STREAMING_BATCH_SIZE,
-        options.getRetryOptions().getStreamingBatchSize());
     assertEquals(initialBackoffMillis, options.getRetryOptions().getInitialBackoffMillis());
 
     assertThat(options.getBulkOptions(),
@@ -734,9 +736,7 @@ public class BigtableIOTest {
             .setUseBulkApi(true)
             .build()));
     assertThat(options.getRetryOptions(),
-        Matchers.equalTo(retryOptionsBuilder
-            .setStreamingBatchSize(RetryOptions.DEFAULT_STREAMING_BATCH_SIZE)
-            .build()));
+        Matchers.equalTo(retryOptionsBuilder.build()));
   }
 
   ////////////////////////////////////////////////////////////////////////////////////////////

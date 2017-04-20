@@ -22,7 +22,7 @@
   <parent>
     <groupId>org.apache.beam</groupId>
     <artifactId>beam-parent</artifactId>
-    <version>0.5.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -33,6 +33,7 @@
   <name>Apache Beam :: Runners</name>
 
   <modules>
+    <module>core-construction-java</module>
     <module>core-java</module>
     <module>direct-java</module>
     <module>flink</module>
@@ -47,56 +48,20 @@
       <build>
         <plugins>
           <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-checkstyle-plugin</artifactId>
-          </plugin>
-
-          <plugin>
             <groupId>org.codehaus.mojo</groupId>
             <artifactId>findbugs-maven-plugin</artifactId>
           </plugin>
         </plugins>
       </build>
     </profile>
-
-    <!-- A profile that adds an integration test phase if and only if
-         the runnableOnServicePipelineOptions maven property has been set.
-         It should be set to a valid PipelineOptions JSON string. -->
-    <profile>
-      <id>runnable-on-service-tests</id>
-      <activation>
-        <property><name>runnableOnServicePipelineOptions</name></property>
-      </activation>
-      <build>
-        <pluginManagement>
-          <plugins>
-            <plugin>
-              <groupId>org.apache.maven.plugins</groupId>
-              <artifactId>maven-surefire-plugin</artifactId>
-              <executions>
-                <execution>
-                  <id>runnable-on-service-tests</id>
-                  <phase>integration-test</phase>
-                  <goals>
-                    <goal>test</goal>
-                  </goals>
-                  <configuration>
-                    <groups>org.apache.beam.sdk.testing.RunnableOnService</groups>
-                    <parallel>all</parallel>
-                    <threadCount>4</threadCount>
-                    <dependenciesToScan>
-                      <dependency>org.apache.beam:beam-sdks-java-core</dependency>
-                    </dependenciesToScan>
-                    <systemPropertyVariables>
-                      <beamTestPipelineOptions>${runnableOnServicePipelineOptions}</beamTestPipelineOptions>
-                    </systemPropertyVariables>
-                  </configuration>
-                </execution>
-              </executions>
-            </plugin>
-          </plugins>
-        </pluginManagement>
-      </build>
-    </profile>
   </profiles>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
 </project>

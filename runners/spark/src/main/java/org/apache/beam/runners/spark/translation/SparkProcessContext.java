@@ -25,13 +25,13 @@ import java.util.Iterator;
 import org.apache.beam.runners.core.DoFnRunner;
 import org.apache.beam.runners.core.DoFnRunners.OutputManager;
 import org.apache.beam.runners.core.ExecutionContext.StepContext;
+import org.apache.beam.runners.core.StateInternals;
+import org.apache.beam.runners.core.TimerInternals;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.reflect.DoFnInvokers;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
-import org.apache.beam.sdk.util.TimerInternals;
 import org.apache.beam.sdk.util.WindowedValue;
-import org.apache.beam.sdk.util.state.StateInternals;
 import org.apache.beam.sdk.values.TupleTag;
 
 
@@ -62,8 +62,10 @@ class SparkProcessContext<FnInputT, FnOutputT, OutputT> {
 
     // skip if partition is empty.
     if (!partition.hasNext()) {
+      DoFnInvokers.invokerFor(doFn).invokeTeardown();
       return Lists.newArrayList();
     }
+
     // call startBundle() before beginning to process the partition.
     doFnRunner.startBundle();
     // process the partition; finishBundle() is called from within the output iterator.
@@ -111,7 +113,7 @@ class SparkProcessContext<FnInputT, FnOutputT, OutputT> {
     public void noteOutput(WindowedValue<?> output) { }
 
     @Override
-    public void noteSideOutput(TupleTag<?> tag, WindowedValue<?> output) { }
+    public void noteOutput(TupleTag<?> tag, WindowedValue<?> output) { }
 
     @Override
     public <T, W extends BoundedWindow> void writePCollectionViewData(

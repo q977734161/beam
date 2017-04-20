@@ -22,7 +22,7 @@
   <parent>
     <groupId>org.apache.beam</groupId>
     <artifactId>beam-runners-parent</artifactId>
-    <version>0.5.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -33,9 +33,53 @@
   <packaging>jar</packaging>
 
   <properties>
-    <timestamp>${maven.build.timestamp}</timestamp>
-    <maven.build.timestamp.format>yyyy-MM-dd HH:mm</maven.build.timestamp.format>
+    <dataflow.container_version>beam-master-20170418</dataflow.container_version>
+    <dataflow.fnapi_environment_major_version>1</dataflow.fnapi_environment_major_version>
+    <dataflow.legacy_environment_major_version>6</dataflow.legacy_environment_major_version>
   </properties>
+
+  <profiles>
+    <!-- A profile that adds an integration test phase if and only if
+     the validatesRunnerPipelineOptions maven property has been set.
+     It should be set to a valid PipelineOptions JSON string. -->
+    <profile>
+      <id>validates-runner-tests</id>
+      <activation>
+        <property><name>validatesRunnerPipelineOptions</name></property>
+      </activation>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-surefire-plugin</artifactId>
+              <executions>
+                <execution>
+                  <id>validates-runner-tests</id>
+                  <phase>integration-test</phase>
+                  <goals>
+                    <goal>test</goal>
+                  </goals>
+                  <configuration>
+                    <skip>false</skip>
+                    <groups>org.apache.beam.sdk.testing.ValidatesRunner</groups>
+                    <parallel>all</parallel>
+                    <threadCount>4</threadCount>
+                    <dependenciesToScan>
+                      <dependency>org.apache.beam:beam-sdks-java-core</dependency>
+                    </dependenciesToScan>
+                    <systemPropertyVariables>
+                      <beamTestPipelineOptions>${validatesRunnerPipelineOptions}</beamTestPipelineOptions>
+                    </systemPropertyVariables>
+                  </configuration>
+                </execution>
+              </executions>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+  </profiles>
 
   <build>
     <resources>
@@ -75,16 +119,18 @@
         </configuration>
         <executions>
           <execution>
-            <id>runnable-on-service-tests</id>
+            <id>validates-runner-tests</id>
             <configuration>
               <excludedGroups>
+                org.apache.beam.sdk.testing.UsesAttemptedMetrics,
+                org.apache.beam.sdk.testing.UsesCommittedMetrics,
+                org.apache.beam.sdk.testing.UsesSetState,
+                org.apache.beam.sdk.testing.UsesMapState,
                 org.apache.beam.sdk.testing.UsesTimersInParDo,
                 org.apache.beam.sdk.testing.UsesSplittableParDo,
-                org.apache.beam.sdk.testing.UsesMetrics
+                org.apache.beam.sdk.testing.UsesUnboundedPCollections,
+                org.apache.beam.sdk.testing.UsesTestStream,
               </excludedGroups>
-              <excludes>
-                <exclude>org.apache.beam.sdk.transforms.FlattenTest</exclude>
-              </excludes>
             </configuration>
           </execution>
         </executions>
@@ -109,8 +155,8 @@
               <shadeTestJar>true</shadeTestJar>
               <artifactSet>
                 <includes>
-                  <include>com.google.cloud.bigtable:bigtable-client-core</include>
                   <include>com.google.guava:guava</include>
+                  <include>org.apache.beam:beam-runners-core-construction-java</include>
                 </includes>
               </artifactSet>
               <filters>
@@ -140,17 +186,13 @@
                   <shadedPattern>org.apache.beam.runners.dataflow.repackaged.com.google.thirdparty</shadedPattern>
                 </relocation>
                 <relocation>
-                  <pattern>com.google.cloud.bigtable</pattern>
-                  <shadedPattern>org.apache.beam.runners.dataflow.repackaged.com.google.cloud.bigtable</shadedPattern>
-                  <excludes>
-                    <exclude>com.google.cloud.bigtable.config.BigtableOptions*</exclude>
-                    <exclude>com.google.cloud.bigtable.config.CredentialOptions*</exclude>
-                    <exclude>com.google.cloud.bigtable.config.RetryOptions*</exclude>
-                    <exclude>com.google.cloud.bigtable.grpc.BigtableClusterName</exclude>
-                    <exclude>com.google.cloud.bigtable.grpc.BigtableTableName</exclude>
-                  </excludes>
+                  <pattern>org.apache.beam.runners.core</pattern>
+                  <shadedPattern>org.apache.beam.runners.dataflow.repackaged.org.apache.beam.runners.core</shadedPattern>
                 </relocation>
               </relocations>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+              </transformers>
             </configuration>
           </execution>
         </executions>
@@ -168,6 +210,26 @@
     <dependency>
       <groupId>org.apache.beam</groupId>
       <artifactId>beam-sdks-java-core</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-sdks-java-extensions-gcp-core</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-sdks-common-runner-api</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-sdks-java-io-google-cloud-platform</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-runners-core-construction-java</artifactId>
     </dependency>
 
     <dependency>
@@ -199,6 +261,11 @@
     <dependency>
       <groupId>com.google.apis</groupId>
       <artifactId>google-api-services-clouddebugger</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.google.apis</groupId>
+      <artifactId>google-api-services-storage</artifactId>
     </dependency>
 
     <dependency>
@@ -237,12 +304,6 @@
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>com.google.protobuf</groupId>
-      <artifactId>protobuf-lite</artifactId>
-      <scope>runtime</scope>
     </dependency>
 
     <dependency>
@@ -324,6 +385,20 @@
     <dependency>
       <groupId>com.google.cloud.datastore</groupId>
       <artifactId>datastore-v1-protos</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- transitive test dependencies from beam-sdk-java-core -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.dataformat</groupId>
+      <artifactId>jackson-dataformat-yaml</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-sdks-common-fn-api</artifactId>
+      <type>test-jar</type>
       <scope>test</scope>
     </dependency>
   </dependencies>
